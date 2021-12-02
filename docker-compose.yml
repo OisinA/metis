@@ -1,11 +1,22 @@
 services:
   metis:
-    build: .
+    build:
+      context: .
+      dockerfile: docker/controller/Dockerfile
     ports:
       - "8060:8060"
     volumes:
       - ./projects:/projects
       - ./nodes:/nodes
+      - ./state:/metis-data
+
+  metis-agent:
+    build:
+      context: .
+      dockerfile: docker/agent/Dockerfile
+    ports:
+      - "6060:6060"
+    volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
   traefik:

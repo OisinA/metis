@@ -2,8 +2,10 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"metis/pkg/node"
 	"metis/pkg/project"
 	"metis/pkg/service"
@@ -11,6 +13,7 @@ import (
 	"metis/pkg/status"
 	"metis/pkg/traefik"
 	"net/http"
+	"os"
 
 	"github.com/Strum355/log"
 	"github.com/spf13/viper"
@@ -22,21 +25,60 @@ var (
 
 type Orchestrator struct {
 	Projects        []project.Project
-	projectServices map[string][]state.ServiceState
+	ProjectServices map[string][]state.ServiceState
 	Nodes           map[string]node.Node
 }
 
 func NewOrchestrator() Orchestrator {
 	return Orchestrator{
 		Projects:        make([]project.Project, 0),
-		projectServices: make(map[string][]state.ServiceState),
+		ProjectServices: make(map[string][]state.ServiceState),
 		Nodes:           make(map[string]node.Node),
 	}
 }
 
+func OrchestratorFromState(state []byte) (Orchestrator, error) {
+	var o Orchestrator
+	err := json.Unmarshal(state, &o)
+	if err != nil {
+		return o, err
+	}
+	return o, nil
+}
+
+func (o *Orchestrator) WriteState() error {
+	err := os.MkdirAll(viper.GetString("metis.home"), os.ModePerm)
+	if err != nil {
+		return err
+	}
+
+	writeLocation := viper.GetString("metis.home") + "/state.json"
+	log.WithFields(log.Fields{
+		"location": writeLocation,
+	}).Info("Writing state")
+
+	marsh, err := json.Marshal(o)
+	if err != nil {
+		return err
+	}
+
+	return ioutil.WriteFile(writeLocation, marsh, 0644)
+}
+
 func (o *Orchestrator) NodeHealthcheck() {
 	for i := range o.Nodes {
-		response, err := http.Get(fmt.Sprintf("http://%s:%d/", o.Nodes[i].Address, o.Nodes[i].APIPort))
+		req, err := http.NewRequest("GET", fmt.Sprintf("http://%s:%d/", o.Nodes[i].Address, o.Nodes[i].APIPort), nil)
+		if err != nil {
+			log.WithFields(log.Fields{
+				"node":    o.Nodes[i].ID,
+				"address": o.Nodes[i].APIPort,
+				"error":   err.Error(),
+			}).Info("Node not healthy")
+			continue
+		}
+		req.Header.Set("Token", viper.GetString("metis.secret"))
+		client := http.Client{}
+		response, err := client.Do(req)
 		if err != nil {
 			nd := o.Nodes[i]
 			nd.Healthy = false
@@ -75,7 +117,7 @@ func (o *Orchestrator) CreateProject(proj project.Project) error {
 	log.WithFields(log.Fields{
 		"name": proj.Name,
 	}).Info("Creating project")
-	o.projectServices[proj.Name] = make([]state.ServiceState, 0)
+	o.ProjectServices[proj.Name] = make([]state.ServiceState, 0)
 
 	o.Projects = append(o.Projects, proj)
 
@@ -86,7 +128,7 @@ func (o *Orchestrator) DestroyProject(proj project.Project) error {
 	log.WithFields(log.Fields{
 		"name": proj.Name,
 	}).Info("Destroying project")
-	for _, srv := range o.projectServices[proj.Name] {
+	for _, srv := range o.ProjectServices[proj.Name] {
 		_, err := o.destroyService(srv)
 		if err != nil {
 			return err
@@ -98,7 +140,7 @@ func (o *Orchestrator) DestroyProject(proj project.Project) error {
 
 func (o *Orchestrator) GetServices() []state.ServiceState {
 	states := []state.ServiceState{}
-	for _, i := range o.projectServices {
+	for _, i := range o.ProjectServices {
 		states = append(states, i...)
 	}
 	return states
@@ -140,20 +182,20 @@ func (o *Orchestrator) GetProject(name string) (project.Project, error) {
 
 func (o *Orchestrator) Update() error {
 	ctx := context.Background()
-	for k := range o.projectServices {
-		for y := range o.projectServices[k] {
-			srv, err := o.Nodes[o.projectServices[k][y].Node].ServiceHealth(ctx, o.projectServices[k][y])
+	for k := range o.ProjectServices {
+		for y := range o.ProjectServices[k] {
+			srv, err := o.Nodes[o.ProjectServices[k][y].Node].ServiceHealth(ctx, o.ProjectServices[k][y])
 			if err != nil {
 				log.WithError(err).Error("Could not update status of service")
 				srv.Status = status.UNHEALTHY
-				o.projectServices[k][y] = srv
+				o.ProjectServices[k][y] = srv
 				continue
 			}
-			o.projectServices[k][y] = srv
+			o.ProjectServices[k][y] = srv
 		}
 	}
 
-	for project, services := range o.projectServices {
+	for project, services := range o.ProjectServices {
 		healthy := 0
 		for _, service := range services {
 			if service.Status == status.RUNNING || service.Status == status.CREATED {
@@ -177,7 +219,7 @@ func (o *Orchestrator) Update() error {
 				return err
 			}
 
-			o.projectServices[proj.Name] = append(o.projectServices[proj.Name], state)
+			o.ProjectServices[proj.Name] = append(o.ProjectServices[proj.Name], state)
 		}
 	}
 
@@ -190,11 +232,16 @@ func (o *Orchestrator) Update() error {
 		return nil
 	}
 
+	err = o.WriteState()
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
 func (o *Orchestrator) removeStopped() error {
-	for project, services := range o.projectServices {
+	for project, services := range o.ProjectServices {
 		kept := []state.ServiceState{}
 		for _, service := range services {
 			if service.Status != status.STOPPED {
@@ -210,14 +257,14 @@ func (o *Orchestrator) removeStopped() error {
 			}).Info("Service stopped, removing service")
 		}
 
-		o.projectServices[project] = kept
+		o.ProjectServices[project] = kept
 	}
 
 	return nil
 }
 
 func (o *Orchestrator) stopUnhealthy() error {
-	for project, services := range o.projectServices {
+	for project, services := range o.ProjectServices {
 		kept := []state.ServiceState{}
 		for _, service := range services {
 			if service.Status == status.UNHEALTHY {
@@ -234,14 +281,14 @@ func (o *Orchestrator) stopUnhealthy() error {
 			kept = append(kept, service)
 		}
 
-		o.projectServices[project] = kept
+		o.ProjectServices[project] = kept
 	}
 
 	return nil
 }
 
 func (o *Orchestrator) CountHealthy(project string) (int, error) {
-	services, ok := o.projectServices[project]
+	services, ok := o.ProjectServices[project]
 	if !ok {
 		return 0, errors.New("service not found")
 	}
@@ -262,9 +309,9 @@ func (o *Orchestrator) GetTraefikConfig() traefik.Configuration {
 	config.HTTP.Services = map[string]traefik.Service{}
 
 	for _, project := range o.Projects {
-		services := o.projectServices[project.Name]
+		services := o.ProjectServices[project.Name]
 		router := traefik.Router{
-			Rule:    fmt.Sprintf("Host(`%s`)", viper.GetString("metis.controller.url")),
+			Rule:    fmt.Sprintf("Host(`%s`)", project.Configuration.Host),
 			Service: project.Name,
 		}
 		config.HTTP.Routers[project.Name+"-router"] = router

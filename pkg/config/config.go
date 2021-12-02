@@ -15,7 +15,7 @@ func Load() {
 }
 
 func loadDefaults() {
-	viper.SetDefault("metis.home", "metis/data")
+	viper.SetDefault("metis.home", "/metis-data")
 	viper.SetDefault("metis.agent.port", "6060")
 	viper.SetDefault("metis.secret", "1oldmsmkp!")
 	viper.SetDefault("metis.controller.url", "localhost")

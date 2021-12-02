@@ -9,4 +9,5 @@ type ProjectConfiguration struct {
 	ImageName     string `json:"image"`
 	Count         int    `json:"count"`
 	ContainerPort int    `json:"container_port"`
+	Host          string `json:"host"`
 }

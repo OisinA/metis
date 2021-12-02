@@ -16,6 +16,7 @@ import (
 	"github.com/Strum355/log"
 	"github.com/go-chi/chi/v5"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 const (
@@ -38,57 +39,75 @@ func startController() {
 
 	config.PrintSettings()
 
-	orchestrator := orchestrator.NewOrchestrator()
+	var orch orchestrator.Orchestrator
 
-	node_files, err := ioutil.ReadDir("nodes")
-	if err != nil {
-		panic(err)
-	}
+	if _, err := os.Stat(viper.GetString("metis.home") + "/state.json"); err != nil {
+		orch = orchestrator.NewOrchestrator()
+		log.Info("No previous state found. Creating new Orchestrator.")
 
-	nodes := make(map[string]node.Node)
-	for i, f := range node_files {
-		byts, err := ioutil.ReadFile("nodes/" + f.Name())
+		node_files, err := ioutil.ReadDir("nodes")
 		if err != nil {
 			panic(err)
 		}
-		node := node.Node{ID: fmt.Sprintf("node-%d", i)}
-		err = json.Unmarshal(byts, &node)
+
+		nodes := make(map[string]node.Node)
+		for i, f := range node_files {
+			byts, err := ioutil.ReadFile("nodes/" + f.Name())
+			if err != nil {
+				panic(err)
+			}
+			node := node.Node{ID: fmt.Sprintf("node-%d", i)}
+			err = json.Unmarshal(byts, &node)
+			if err != nil {
+				panic(err)
+			}
+			nodes[node.ID] = node
+		}
+
+		orch.Nodes = nodes
+
+		orch.NodeHealthcheck()
+		fmt.Println(orch.Nodes)
+
+		files, err := ioutil.ReadDir("projects")
 		if err != nil {
 			panic(err)
 		}
-		nodes[node.ID] = node
-	}
 
-	orchestrator.Nodes = nodes
+		projects := make([]project.Project, 0)
+		for _, f := range files {
+			byts, err := ioutil.ReadFile("projects/" + f.Name())
+			if err != nil {
+				panic(err)
+			}
+			proj := project.Project{}
+			err = json.Unmarshal(byts, &proj)
+			if err != nil {
+				panic(err)
+			}
+			projects = append(projects, proj)
+		}
 
-	orchestrator.NodeHealthcheck()
-	fmt.Println(orchestrator.Nodes)
+		for _, proj := range projects {
+			err = orch.CreateProject(proj)
 
-	files, err := ioutil.ReadDir("projects")
-	if err != nil {
-		panic(err)
-	}
-
-	projects := make([]project.Project, 0)
-	for _, f := range files {
-		byts, err := ioutil.ReadFile("projects/" + f.Name())
+			if err != nil {
+				panic(err)
+			}
+		}
+	} else {
+		log.Info("Previous state found. Recovering previous state.")
+		file, err := ioutil.ReadFile(viper.GetString("metis.home") + "/state.json")
 		if err != nil {
 			panic(err)
 		}
-		proj := project.Project{}
-		err = json.Unmarshal(byts, &proj)
+		orch, err = orchestrator.OrchestratorFromState(file)
 		if err != nil {
 			panic(err)
 		}
-		projects = append(projects, proj)
-	}
-
-	for _, proj := range projects {
-		err = orchestrator.CreateProject(proj)
-
-		if err != nil {
-			panic(err)
-		}
+		log.WithFields(log.Fields{
+			"state": orch,
+		}).Info("Recovered state")
 	}
 
 	go func() {
@@ -111,8 +130,8 @@ func startController() {
 				Healthy int `json:"healthy"`
 				project.Project
 			}{}
-			for _, proj := range orchestrator.Projects {
-				healthy, err := orchestrator.CountHealthy(proj.Name)
+			for _, proj := range orch.Projects {
+				healthy, err := orch.CountHealthy(proj.Name)
 				if err != nil {
 					log.WithError(err).Error("Could not return project")
 					continue
@@ -134,7 +153,7 @@ func startController() {
 		})
 
 		r.Get("/services", func(w http.ResponseWriter, r *http.Request) {
-			err := json.NewEncoder(w).Encode(orchestrator.GetServices())
+			err := json.NewEncoder(w).Encode(orch.GetServices())
 			if err != nil {
 				log.WithError(err).Error("Could not send API response")
 				return
@@ -142,7 +161,7 @@ func startController() {
 		})
 
 		r.Get("/nodes", func(w http.ResponseWriter, r *http.Request) {
-			err := json.NewEncoder(w).Encode(orchestrator.Nodes)
+			err := json.NewEncoder(w).Encode(orch.Nodes)
 			if err != nil {
 				log.WithError(err).Error("Could not send API response")
 				return
@@ -150,7 +169,7 @@ func startController() {
 		})
 
 		r.Get("/traefik", func(w http.ResponseWriter, r *http.Request) {
-			config := orchestrator.GetTraefikConfig()
+			config := orch.GetTraefikConfig()
 
 			err := json.NewEncoder(w).Encode(config.ToMap())
 			if err != nil {
@@ -182,7 +201,7 @@ func startController() {
 			return
 		default:
 		}
-		err = orchestrator.Update()
+		err := orch.Update()
 		if err != nil {
 			log.WithError(err).Error("Error updating orchestrator")
 		}
