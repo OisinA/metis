@@ -10,9 +10,13 @@ It is currently being used to host [https://oisinaylward.me](https://oisinaylwar
 
 There is a HTTP header passed around containing a token. It was not built with security in mind - do not use somewhere where security is important.
 
-## Examples
+## Configuration
 
-### `projects/nginx.json`
+Configuration is currently done entirely in the controller. It is entirely static - dynamic configuration is not yet possible. To change configuration, it requires bringing down the controller.
+
+### Examples
+
+#### `projects/nginx.json`
 ```
 {
     "name": "webserver",
@@ -25,7 +29,7 @@ There is a HTTP header passed around containing a token. It was not built with s
 }
 ```
 
-### `nodes/node0.json`
+#### `nodes/node0.json`
 ```
 {
     "address": "host.docker.internal",
@@ -35,3 +39,7 @@ There is a HTTP header passed around containing a token. It was not built with s
     "api_port": 6060
 }
 ```
+
+## Deployment
+
+Dockerfiles can be found in the docker directory for both the controller & agent. Check `docker-compose.yml` for a sample single-node deployment.
