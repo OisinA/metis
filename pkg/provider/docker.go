@@ -150,12 +150,10 @@ func (d *DockerProvider) ServiceHealth(ctx context.Context, srv state.ServiceSta
 }
 
 func (d *DockerProvider) GetServiceAddress(ctx context.Context, srv state.ServiceState) (string, error) {
-	// cnt_json, err := d.client.ContainerInspect(ctx, srv.ID)
-	// if err != nil {
-	// 	return "", err
-	// }
+	cnt_json, err := d.client.ContainerInspect(ctx, srv.ID)
+	if err != nil {
+		return "", err
+	}
 
-	// return cnt_json.NetworkSettings.IPAddress, nil
-
-	return "host.docker.internal", nil
+	return cnt_json.NetworkSettings.IPAddress, nil
 }

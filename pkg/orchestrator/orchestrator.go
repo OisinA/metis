@@ -87,10 +87,6 @@ func (o *Orchestrator) DestroyProject(proj project.Project) error {
 		"name": proj.Name,
 	}).Info("Destroying project")
 	for _, srv := range o.projectServices[proj.Name] {
-		// _, err := o.stopService(srv)
-		// if err != nil {
-		// 	return err
-		// }
 		_, err := o.destroyService(srv)
 		if err != nil {
 			return err
@@ -121,25 +117,7 @@ func (o *Orchestrator) createService(srv service.Service) (state.ServiceState, e
 	ROUNDROBIN = nodeIndex
 
 	return o.Nodes[fmt.Sprintf("node-%d", nodeIndex)].CreateService(ctx, srv)
-
-	// return o.jobProvider.CreateService(ctx, srv)
 }
-
-// func (o *Orchestrator) startService(srv state.ServiceState) (state.ServiceState, error) {
-// 	ctx := context.Background()
-// 	log.WithFields(log.Fields{
-// 		"name": srv.Service.Name(),
-// 	}).Info("Starting service")
-// 	return o.jobProvider.StartService(ctx, srv)
-// }
-
-// func (o *Orchestrator) stopService(srv state.ServiceState) (state.ServiceState, error) {
-// 	ctx := context.Background()
-// 	log.WithFields(log.Fields{
-// 		"name": srv.Service.Name(),
-// 	}).Info("Stopping service")
-// 	return o.jobProvider.StopService(ctx, srv)
-// }
 
 func (o *Orchestrator) destroyService(srv state.ServiceState) (state.ServiceState, error) {
 	ctx := context.Background()
@@ -148,7 +126,6 @@ func (o *Orchestrator) destroyService(srv state.ServiceState) (state.ServiceStat
 	}).Info("Destroying service")
 
 	return o.Nodes[srv.Node].DestroyService(ctx, srv)
-	// return o.jobProvider.DestroyService(ctx, srv)
 }
 
 func (o *Orchestrator) GetProject(name string) (project.Project, error) {
@@ -165,7 +142,6 @@ func (o *Orchestrator) Update() error {
 	ctx := context.Background()
 	for k := range o.projectServices {
 		for y := range o.projectServices[k] {
-			// srv, err := o.jobProvider.ServiceHealth(ctx, o.projectServices[k][y])
 			srv, err := o.Nodes[o.projectServices[k][y].Node].ServiceHealth(ctx, o.projectServices[k][y])
 			if err != nil {
 				log.WithError(err).Error("Could not update status of service")
@@ -200,11 +176,6 @@ func (o *Orchestrator) Update() error {
 			if err != nil {
 				return err
 			}
-
-			// state, err = o.startService(state)
-			// if err != nil {
-			// 	return err
-			// }
 
 			o.projectServices[proj.Name] = append(o.projectServices[proj.Name], state)
 		}
@@ -254,10 +225,6 @@ func (o *Orchestrator) stopUnhealthy() error {
 					"id":   service.ID,
 					"name": service.Name,
 				}).Info("Service unhealthy, removing service")
-				// _, err := o.stopService(service)
-				// if err != nil {
-				// 	return err
-				// }
 				_, err := o.destroyService(service)
 				if err != nil {
 					return err
@@ -312,11 +279,6 @@ func (o *Orchestrator) GetTraefikConfig() traefik.Configuration {
 			if service.Status != status.RUNNING {
 				continue
 			}
-			// url, err := o.jobProvider.GetServiceAddress(ctx, service)
-			// if err != nil {
-			// 	log.WithError(err).Error("Could not fetch URL for service")
-			// 	continue
-			// }
 			url := o.Nodes[service.Node].Address
 			urls = append(urls, traefik.URL{URL: fmt.Sprintf("http://%s:%d", url, service.ExposedPort)})
 		}
