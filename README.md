@@ -4,6 +4,8 @@ Super simple orchestration for stateless HTTP containers. This is a personal pro
 
 Metis uses Traefik for load balancing between services (configuration can be checked in the `docker-compose.yml`).
 
+It is currently being used to host [https://oisinaylward.me](https://oisinaylward.me) across multiple nodes.
+
 ## Security
 
 There is a HTTP header passed around containing a token. It was not built with security in mind - do not use somewhere where security is important.
